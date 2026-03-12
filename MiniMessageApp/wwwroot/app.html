@@ -1,0 +1,165 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Auth0 Demo</title>
+    <script src="https://cdn.auth0.com/js/auth0-spa-js/2.0/auth0-spa-js.production.js"></script>
+</head>
+<body>
+    <div id="app"></div>
+
+    <script>
+        const model = {
+            auth0Client: null,
+            domain: "https://getacademy.eu.auth0.com",
+            clientId: "VjJ5TcrSCJBypeeWZCf1V1dkGDGk9lY1",
+            audience: "https://get-mini-messages",
+            apiUrl: "http://localhost:5000/messages",
+
+            isAuthenticated: false,
+            userProfile: null,
+            accessToken: null,
+            idToken: null,
+            decodedAccessToken: null,
+            apiResult: null,
+            errorMessage: null
+        };
+
+        function decodeJwt(token) {
+            const payload = token.split('.')[1];
+            return JSON.parse(atob(payload));
+        }
+
+        function formatJson(value) {
+            return value ? JSON.stringify(value, null, 2) : "";
+        }
+
+        function escapeHtml(text) {
+            if (text === null || text === undefined) return "";
+            return String(text)
+                .replaceAll("&", "&amp;")
+                .replaceAll("<", "&lt;")
+                .replaceAll(">", "&gt;");
+        }
+
+        function updateView() {
+            document.getElementById("app").innerHTML = /*HTML*/`
+            <h1>Auth0 Demo</h1>
+
+            <p><strong>Innlogget:</strong> ${model.isAuthenticated ? "Ja" : "Nei"}</p>
+
+            <button onclick="login()">Login</button>
+            <button onclick="logout()">Logout</button>
+            <button onclick="loadTokens()">Hent tokens</button>
+            <button onclick="callApi()">Call API</button>
+
+            ${model.errorMessage ? `
+              <h2>Error</h2>
+              <pre>${escapeHtml(model.errorMessage)}</pre>
+            ` : ""}
+
+            <h2>User profile (fra ID token / Auth0 userinfo)</h2>
+            <pre>${escapeHtml(formatJson(model.userProfile))}</pre>
+
+            <h2>Access token</h2>
+            <pre>${escapeHtml(model.accessToken)}</pre>
+
+            <h2>ID token</h2>
+            <pre>${escapeHtml(model.idToken)}</pre>
+
+            <h2>Decoded access token</h2>
+            <pre>${escapeHtml(formatJson(model.decodedAccessToken))}</pre>
+
+            <h2>API result</h2>
+            <pre>${escapeHtml(model.apiResult)}</pre>
+          `;
+        }
+
+        async function login() {
+            await model.auth0Client.loginWithRedirect();
+        }
+
+        async function logout() {
+            model.auth0Client.logout({
+                logoutParams: { returnTo: window.location.origin }
+            });
+        }
+
+        async function loadTokens() {
+            try {
+                model.errorMessage = null;
+
+                model.isAuthenticated = await model.auth0Client.isAuthenticated();
+
+                if (!model.isAuthenticated) {
+                    model.userProfile = null;
+                    model.accessToken = null;
+                    model.idToken = null;
+                    model.decodedAccessToken = null;
+                    updateView();
+                    return;
+                }
+
+                model.accessToken = await model.auth0Client.getTokenSilently();
+                model.idToken = (await model.auth0Client.getIdTokenClaims()).__raw;
+                model.decodedAccessToken = decodeJwt(model.accessToken);
+                model.userProfile = await model.auth0Client.getUser();
+
+                updateView();
+            } catch (error) {
+                model.errorMessage = error.message;
+                updateView();
+            }
+        }
+
+        async function callApi() {
+            try {
+                model.errorMessage = null;
+
+                if (!model.accessToken) {
+                    await loadTokens();
+                }
+
+                const response = await fetch(model.apiUrl, {
+                    headers: {
+                        Authorization: `Bearer ${model.accessToken}`
+                    }
+                });
+
+                model.apiResult = await response.text();
+                updateView();
+            } catch (error) {
+                model.errorMessage = error.message;
+                updateView();
+            }
+        }
+
+        async function init() {
+            model.auth0Client = await auth0.createAuth0Client({
+                domain: model.domain,
+                clientId: model.clientId,
+                authorizationParams: {
+                    audience: model.audience,
+                    redirect_uri: window.location.origin
+                }
+            });
+
+            if (window.location.search.includes("code=")) {
+                await model.auth0Client.handleRedirectCallback();
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
+
+            model.isAuthenticated = await model.auth0Client.isAuthenticated();
+
+            if (model.isAuthenticated) {
+                await loadTokens();
+            } else {
+                updateView();
+            }
+        }
+
+        init();
+    </script>
+</body>
+</html>
+
